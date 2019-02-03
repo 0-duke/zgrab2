@@ -53,6 +53,9 @@ type Flags struct {
 	// UseHTTPS causes the first request to be over TLS, without requiring a
 	// redirect to HTTPS. It does not change the port used for the connection.
 	UseHTTPS bool `long:"use-https" description:"Perform an HTTPS connection on the initial host"`
+
+	// Don't resolve hostname but use it for "Host" HTTP Header
+	DontResolveDomains bool `long:"dont-resolve-domains" description:"Dont resolve domains but use it in the 'Host' HTTP Header"`
 }
 
 // A Results object is returned by the HTTP module's Scanner.Scan()
@@ -85,6 +88,7 @@ type scan struct {
 	client         *http.Client
 	results        Results
 	url            string
+	vhost		   string
 	globalDeadline time.Time
 }
 
@@ -280,12 +284,18 @@ func (scanner *Scanner) newHTTPScan(t *zgrab2.ScanTarget) *scan {
 	ret.client.Transport = ret.transport
 	ret.client.Jar = nil // Don't send or receive cookies (otherwise use CookieJar)
 	ret.client.Timeout = scanner.config.Timeout
-	host := t.Domain
-	if host == "" {
-		host = t.IP.String()
+	vhost := t.Domain
+	if vhost == "" {
+		vhost = t.IP.String()
 	}
-	ret.url = getHTTPURL(scanner.config.UseHTTPS, host, uint16(scanner.config.BaseFlags.Port), scanner.config.Endpoint)
 
+	if(scanner.config.DontResolveDomains){
+		ret.url = getHTTPURL(scanner.config.UseHTTPS, t.IP.String(), uint16(scanner.config.BaseFlags.Port), scanner.config.Endpoint)
+	} else {
+		ret.url = getHTTPURL(scanner.config.UseHTTPS, vhost, uint16(scanner.config.BaseFlags.Port), scanner.config.Endpoint)
+	}
+
+	ret.vhost = vhost
 	return &ret
 }
 
@@ -298,6 +308,9 @@ func (scan *scan) Grab() *zgrab2.ScanError {
 	}
 	// TODO: Headers from input?
 	request.Header.Set("Accept", "*/*")
+	if(scan.scanner.config.DontResolveDomains){
+		request.Host = scan.vhost
+	}
 	resp, err := scan.client.Do(request)
 	if resp != nil && resp.Body != nil {
 		defer resp.Body.Close()
